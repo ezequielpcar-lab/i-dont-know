@@ -1,10 +1,9 @@
 // Guarda la app en caché para que abra al instante y funcione sin conexión
 // (las búsquedas y el análisis con IA sí necesitan internet).
-const CACHE = "webradar-v2";
+const CACHE = "webradar-v3";
 const SHELL = [
   "./", "index.html", "css/styles.css", "js/app.js", "js/osm.js", "js/ai.js", "js/pricing.js",
-  "js/vendor/anthropic-sdk.js", "js/vendor/leaflet/leaflet.js", "js/vendor/leaflet/leaflet.css",
-  "js/vendor/leaflet/images/marker-icon.png", "js/vendor/leaflet/images/marker-icon-2x.png", "js/vendor/leaflet/images/marker-shadow.png",
+  "js/vendor/anthropic-sdk.js",
   "manifest.webmanifest", "icons/icon-192.png", "icons/apple-touch-icon.png",
 ];
 
