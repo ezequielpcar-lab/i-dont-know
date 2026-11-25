@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>WebRadar</title>
+  <meta name="description" content="Encuentra negocios de España sin página web o con una web anticuada, con datos de contacto y presupuesto estimado con IA.">
+  <meta name="theme-color" content="#1f5eff">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="WebRadar">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png" type="image/png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <img src="icons/icon-192.png" alt="" width="32" height="32">
+      <h1>WebRadar</h1>
+    </div>
+    <button id="btnSettings" class="icon-btn" aria-label="Ajustes">
+      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M19.4 13a7.5 7.5 0 0 0 0-2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-1.7-1L15 3.5h-4l-.4 2.5a7 7 0 0 0-1.7 1l-2.4-1-2 3.4 2 1.6a7.5 7.5 0 0 0 0 2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 1.7 1l.4 2.5h4l.4-2.5a7 7 0 0 0 1.7-1l2.4 1 2-3.4-2.1-1.6zM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"/></svg>
+    </button>
+  </header>
+
+  <section class="search-panel">
+    <form id="searchForm" class="search-row" autocomplete="off">
+      <input id="zone" type="search" placeholder="Zona: barrio, ciudad o código postal (ej. Ruzafa, Valencia)" required enterkeyhint="search">
+      <button type="button" id="btnLocate" class="btn secondary" title="Usar mi ubicación">📍 Aquí</button>
+      <select id="radius" aria-label="Radio de búsqueda">
+        <option value="500">500 m</option>
+        <option value="1000" selected>1 km</option>
+        <option value="2000">2 km</option>
+        <option value="5000">5 km</option>
+        <option value="10000">10 km</option>
+      </select>
+      <button type="submit" class="btn primary" id="btnSearch">Buscar</button>
+    </form>
+    <div id="categories" class="chips" role="group" aria-label="Sectores"></div>
+  </section>
+
+  <section class="toolbar">
+    <div class="segmented" role="tablist" id="viewFilter">
+      <button data-view="sinweb" class="active">Sin web</button>
+      <button data-view="conweb">Con web</button>
+      <button data-view="todos">Todos</button>
+      <button data-view="guardados">Guardados</button>
+    </div>
+    <input id="textFilter" type="search" placeholder="Filtrar por nombre o tipo…">
+    <label class="check"><input type="checkbox" id="hideChains" checked> Ocultar cadenas</label>
+    <label class="check"><input type="checkbox" id="onlyPhone"> Solo con teléfono</label>
+  </section>
+
+  <p id="status" class="status" role="status">Escribe una zona de España y pulsa Buscar.</p>
+
+  <main class="layout">
+    <ul id="results" class="results" aria-label="Negocios encontrados"></ul>
+    <aside id="detail" class="detail" aria-live="polite">
+      <div class="empty-detail">
+        <p>Selecciona un negocio para ver sus datos de contacto, enlaces de Google y el presupuesto estimado.</p>
+      </div>
+    </aside>
+  </main>
+
+  <dialog id="settings">
+    <form method="dialog" class="settings-form">
+      <h2>Ajustes</h2>
+      <label>Clave de la API de Claude
+        <input id="apiKey" type="password" placeholder="sk-ant-…" autocomplete="off" spellcheck="false">
+      </label>
+      <p class="hint">Consíguela en <a href="https://platform.claude.com/settings/keys" target="_blank" rel="noopener">platform.claude.com</a>. Se guarda solo en este iPad. Cada análisis con IA cuesta unos céntimos.</p>
+      <label>Modelo de IA
+        <select id="model"></select>
+      </label>
+      <div class="row">
+        <button type="button" id="btnTestKey" class="btn secondary">Probar clave</button>
+        <span id="keyStatus" class="hint"></span>
+      </div>
+      <hr>
+      <div class="row wrap">
+        <button type="button" id="btnExportSaved" class="btn secondary">Exportar guardados (CSV)</button>
+        <button type="button" id="btnExportResults" class="btn secondary">Exportar resultados (CSV)</button>
+      </div>
+      <p class="hint">Datos de negocios: © colaboradores de OpenStreetMap. Algunos negocios sí tienen web aunque no figure en el mapa: el análisis con IA lo comprueba.</p>
+      <div class="row end">
+        <button value="close" class="btn primary">Guardar y cerrar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
