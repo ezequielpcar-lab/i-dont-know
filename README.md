@@ -6,7 +6,8 @@ App para iPad (web app instalable) que busca negocios en cualquier zona de Espa�
 
 | Función | Cómo |
 |---|---|
-| Búsqueda por zona | Escribe barrio, ciudad o código postal (o pulsa 📍 *Aquí*), elige radio (500 m – 10 km) y sectores. |
+| Mapa interactivo | Toca cualquier punto de España para marcar el centro de la zona (o arrastra el punto azul). El círculo muestra el área que se va a buscar y, tras buscar, cada negocio aparece en el mapa con su color (rojo sin web, naranja web anticuada, azul con web sin analizar, verde web moderna). Toca un punto para abrir su ficha. |
+| Búsqueda por zona | Toca el mapa, escribe barrio/ciudad/código postal o pulsa 📍 *Aquí*. Radio ajustable de **500 m a 60 km** y sectores. En zonas grandes (más de 15 km) se activa *Traer solo negocios sin web* para que la búsqueda sea rápida; puedes desactivarlo. |
 | Sin web / con web | Pestañas *Sin web*, *Con web*, *Todos* y *Guardados*. Opción de ocultar cadenas/franquicias. |
 | Datos de contacto | Teléfono (llamar, WhatsApp si es móvil, copiar), email (con mensaje preparado), Instagram, Facebook, web, dirección y horario. |
 | Enlace a Google | *Ver en Google Maps* (reseñas, fotos, teléfono…) y *Buscar en Google*, con botón para copiar el enlace. |
@@ -14,6 +15,8 @@ App para iPad (web app instalable) que busca negocios en cualquier zona de Espa�
 | Precio rápido sin IA | Estimación orientativa por sector, visible siempre. |
 | Seguimiento | Guarda negocios, márcalos (Pendiente, Contactado, Interesado, Presupuesto enviado, Cliente, Descartado) y añade notas. |
 | Exportar | CSV (abre en Excel/Numbers) de guardados o resultados. |
+
+Cada búsqueda trae como máximo 5.000 negocios; si una zona tiene más, la app te avisa para que reduzcas el radio o los sectores. La lista se muestra de 200 en 200.
 
 Los datos de los negocios salen de **OpenStreetMap** (gratis, sin clave). OpenStreetMap no tiene todas las webs: un negocio marcado como "Sin web" puede tenerla. El análisis con IA lo comprueba buscando en internet.
 
@@ -35,6 +38,7 @@ js/app.js               lógica de la app, guardados y exportación
 js/osm.js               búsqueda en OpenStreetMap (Nominatim + Overpass) y enlaces de Google/WhatsApp
 js/ai.js                análisis con Claude (web_search + web_fetch)
 js/pricing.js           estimación de precio por sector sin IA
+js/vendor/leaflet/      Leaflet 1.9.4 (mapa interactivo)
 js/vendor/anthropic-sdk.js  SDK oficial de Anthropic (v1.8.0) empaquetado para el navegador
 sw.js, manifest.webmanifest, icons/   lo necesario para instalarla como app
 ```
