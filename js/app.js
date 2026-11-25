@@ -44,7 +44,6 @@ const state = {
   pageSize: 200,
   shown: 200,
 };
-const L = window.L;
 
 // ---------- Utilidades ----------
 const $ = (s) => document.querySelector(s);
@@ -88,45 +87,23 @@ function webStatus(b) {
   return b.website ? { label: "Tiene web · sin analizar", cls: "info" } : { label: "Sin web", cls: "bad" };
 }
 
-// ---------- Mapa y zona de búsqueda ----------
-const map = L.map("map", { preferCanvas: true, zoomControl: true }).setView([40.2, -3.7], 6);
-L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-  maxZoom: 19,
-  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-}).addTo(map);
-const centerMarker = L.marker([0, 0], { draggable: true, autoPan: true, title: "Centro de la búsqueda" });
-const zoneCircle = L.circle([0, 0], { radius: 1000, color: "#1f5eff", weight: 2, fillOpacity: 0.08, interactive: false });
-const resultsLayer = L.layerGroup().addTo(map);
-
-const legend = L.control({ position: "bottomleft" });
-legend.onAdd = () => {
-  const d = L.DomUtil.create("div", "legend");
-  d.innerHTML = `<div><i style="background:#e0364b"></i>Sin web / solo redes</div><div><i style="background:#f08c00"></i>Web anticuada o mejorable</div><div><i style="background:#1f5eff"></i>Con web (sin analizar)</div><div><i style="background:#18a058"></i>Web moderna</div>`;
-  return d;
-};
-legend.addTo(map);
-
+// ---------- Zona y radio de búsqueda ----------
 function radiusMeters() { return Math.round(state.radiusKm * 1000); }
 
 function updateRadiusUi() {
   $("#radius").value = state.radiusKm;
   $("#radiusOut").textContent = state.radiusKm < 1 ? `${state.radiusKm * 1000} m` : `${state.radiusKm} km`;
-  zoneCircle.setRadius(radiusMeters());
 }
 
 function updateZoneLabel() {
   const c = state.center;
   $("#zoneLabel").innerHTML = c
-    ? `Zona marcada: <b>${esc(c.label || `${c.lat.toFixed(4)}, ${c.lon.toFixed(4)}`)}</b> · radio ${esc($("#radiusOut").textContent)}. Arrastra el punto o toca otro sitio para cambiarla.`
-    : `Toca el mapa para marcar el centro de la zona, ajusta el radio (hasta 60 km) y pulsa <b>Buscar negocios</b>.`;
+    ? `Zona: <b>${esc(c.label || `${c.lat.toFixed(4)}, ${c.lon.toFixed(4)}`)}</b> · radio ${esc($("#radiusOut").textContent)}.`
+    : `Escribe un lugar de España o pulsa <b>📍 Aquí</b>, ajusta el radio (hasta 60 km) y pulsa <b>Buscar negocios</b>.`;
 }
 
-async function setCenter(lat, lon, label = null, { fit = false } = {}) {
+async function setCenter(lat, lon, label = null) {
   state.center = { lat, lon, label };
-  centerMarker.setLatLng([lat, lon]);
-  zoneCircle.setLatLng([lat, lon]);
-  if (!map.hasLayer(centerMarker)) { centerMarker.addTo(map); zoneCircle.addTo(map); }
-  if (fit) map.fitBounds(zoneCircle.getBounds(), { padding: [20, 20] });
   updateZoneLabel();
   if (!label) {
     const name = await reverseGeocode(lat, lon);
@@ -136,16 +113,6 @@ async function setCenter(lat, lon, label = null, { fit = false } = {}) {
   store.settings.center = state.center;
   persist();
 }
-
-map.on("click", (e) => {
-  $("#zone").value = "";
-  setCenter(e.latlng.lat, e.latlng.lng);
-});
-centerMarker.on("dragend", () => {
-  const p = centerMarker.getLatLng();
-  $("#zone").value = "";
-  setCenter(p.lat, p.lng);
-});
 
 $("#radius").addEventListener("input", () => {
   const prev = state.radiusKm;
@@ -157,33 +124,6 @@ $("#radius").addEventListener("input", () => {
   store.settings.radiusKm = state.radiusKm;
   persist();
 });
-$("#radius").addEventListener("change", () => {
-  if (state.center) map.fitBounds(zoneCircle.getBounds(), { padding: [20, 20] });
-});
-
-$("#btnMapToggle").addEventListener("click", () => {
-  const wrap = $(".map-wrap");
-  wrap.classList.toggle("collapsed");
-  $("#btnMapToggle").textContent = wrap.classList.contains("collapsed") ? "Mostrar mapa" : "Ocultar mapa";
-  if (!wrap.classList.contains("collapsed")) setTimeout(() => map.invalidateSize(), 50);
-});
-
-const COLORS = { bad: "#e0364b", warn: "#f08c00", info: "#1f5eff", ok: "#18a058" };
-function renderMarkers(list) {
-  resultsLayer.clearLayers();
-  for (const b of list) {
-    if (b.lat == null) continue;
-    const ws = webStatus(b);
-    const selected = b.id === state.selectedId;
-    const m = L.circleMarker([b.lat, b.lon], {
-      radius: selected ? 10 : 6, color: selected ? "#111" : "#fff", weight: selected ? 3 : 1.5,
-      fillColor: COLORS[ws.cls] || "#888", fillOpacity: 0.9,
-    });
-    m.bindTooltip(`${esc(b.name)} · ${esc(b.type)}`);
-    m.on("click", () => selectBusiness(b.id, { fromMap: true }));
-    m.addTo(resultsLayer);
-  }
-}
 
 // ---------- Búsqueda ----------
 function renderCategories() {
@@ -194,7 +134,7 @@ function renderCategories() {
 
 async function runSearch() {
   const c = state.center;
-  if (!c) return setStatus("Marca primero una zona: toca el mapa o escribe un lugar.", true);
+  if (!c) return setStatus("Escribe primero un lugar o pulsa 📍 Aquí.", true);
   const radius = radiusMeters();
   const categories = [...state.categories];
   if (!categories.length) return setStatus("Elige al menos un sector.", true);
@@ -234,7 +174,7 @@ $("#searchForm").addEventListener("submit", async (ev) => {
     setStatus(`Localizando "${zone}"…`);
     try {
       const [place] = await geocode(zone);
-      await setCenter(place.lat, place.lon, place.label.split(",").slice(0, 3).join(","), { fit: true });
+      await setCenter(place.lat, place.lon, place.label.split(",").slice(0, 3).join(","));
       $("#zone").value = state.center.label;
     } catch (e) {
       return setStatus(e.message, true);
@@ -249,8 +189,8 @@ $("#btnLocate").addEventListener("click", () => {
   navigator.geolocation.getCurrentPosition(
     (pos) => {
       $("#zone").value = "";
-      setCenter(pos.coords.latitude, pos.coords.longitude, null, { fit: true });
-      setStatus("Ubicación marcada en el mapa. Ajusta el radio y pulsa Buscar negocios.");
+      setCenter(pos.coords.latitude, pos.coords.longitude);
+      setStatus("Ubicación obtenida. Ajusta el radio y pulsa Buscar negocios.");
     },
     () => setStatus("No se pudo obtener la ubicación. Revisa los permisos de Safari.", true),
     { enableHighAccuracy: true, timeout: 15000 }
@@ -302,7 +242,6 @@ function renderList() {
       `. Mostrando ${list.length}.` +
       (state.truncated ? " ⚠️ Hay más negocios de los que caben en una búsqueda: reduce el radio o los sectores para verlos todos." : ""));
   }
-  renderMarkers(list);
   const page = list.slice(0, state.shown);
   $("#results").innerHTML = list.length
     ? page.map((b) => {
@@ -328,22 +267,12 @@ function renderList() {
     : `<li class="empty-detail">${state.results.length || state.view === "guardados" ? "No hay negocios con estos filtros." : ""}</li>`;
 }
 
-function selectBusiness(id, { fromMap = false } = {}) {
+function selectBusiness(id) {
   state.selectedId = id;
-  if (fromMap) {
-    const idx = visibleList().findIndex((b) => b.id === id);
-    if (idx >= state.shown) state.shown = Math.ceil((idx + 1) / state.pageSize) * state.pageSize;
-  }
   renderList();
   renderDetail();
   $("#detail").classList.add("open");
   $("#detail").scrollTop = 0;
-  const card = document.querySelector(`.card[data-id="${CSS.escape(id)}"]`);
-  if (fromMap) card?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-  else {
-    const b = findBusiness(id);
-    if (b?.lat != null && !$(".map-wrap").classList.contains("collapsed")) map.panTo([b.lat, b.lon]);
-  }
 }
 
 $("#results").addEventListener("click", (ev) => {
@@ -605,7 +534,7 @@ updateRadiusUi();
 $("#onlyNoWeb").checked = state.radiusKm > 15;
 if (state.center) {
   const { lat, lon, label } = state.center;
-  setCenter(lat, lon, label, { fit: true });
+  setCenter(lat, lon, label);
   if (label) $("#zone").value = label;
 }
 if (state.results.length) {
