@@ -9,6 +9,18 @@ const OVERPASS_ENDPOINTS = [
   "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
 ];
 
+export async function reverseGeocode(lat, lon) {
+  try {
+    const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=14&lat=${lat}&lon=${lon}`, { headers: { "Accept-Language": "es" } });
+    const d = await res.json();
+    const a = d.address || {};
+    return [a.suburb || a.neighbourhood || a.village || a.town, a.city || a.town || a.municipality, a.province || a.state]
+      .filter((v, i, arr) => v && arr.indexOf(v) === i).join(", ") || null;
+  } catch {
+    return null;
+  }
+}
+
 export async function geocode(zone) {
   const url = `${NOMINATIM}?format=jsonv2&countrycodes=es&limit=5&addressdetails=1&q=${encodeURIComponent(zone)}`;
   const res = await fetch(url, { headers: { "Accept-Language": "es" } });
@@ -29,19 +41,29 @@ const AMENITIES = [
   "car_wash", "car_rental", "fuel", "nightclub",
 ];
 
-function buildQuery(lat, lon, radius, categories) {
-  const a = `(around:${radius},${lat},${lon})`;
+export const MAX_RESULTS = 5000;
+
+function bbox(lat, lon, radius) {
+  const dLat = radius / 111320;
+  const dLon = radius / (111320 * Math.cos((lat * Math.PI) / 180));
+  return `(${(lat - dLat).toFixed(5)},${(lon - dLon).toFixed(5)},${(lat + dLat).toFixed(5)},${(lon + dLon).toFixed(5)})`;
+}
+
+// Con radios grandes se usa una caja (más rápida que "around") y luego se recorta al círculo en el iPad.
+function buildQuery(lat, lon, radius, categories, { onlyNoWeb, excludeChains }) {
+  const area = radius > 3000 ? bbox(lat, lon, radius) : `(around:${radius},${lat},${lon})`;
+  const f = `["name"]${onlyNoWeb ? '[!"website"][!"contact:website"][!"url"]' : ""}${excludeChains ? '[!"brand"][!"brand:wikidata"]' : ""}`;
   const parts = [];
-  if (categories.includes("comercio")) parts.push(`nwr["name"]["shop"]${a};`);
+  if (categories.includes("comercio")) parts.push(`nwr${f}["shop"]${area};`);
   if (categories.includes("hosteleria") || categories.includes("salud") || categories.includes("servicios")) {
-    parts.push(`nwr["name"]["amenity"~"^(${AMENITIES.join("|")})$"]${a};`);
+    parts.push(`nwr${f}["amenity"~"^(${AMENITIES.join("|")})$"]${area};`);
   }
-  if (categories.includes("salud")) parts.push(`nwr["name"]["healthcare"]${a};`);
-  if (categories.includes("oficios")) parts.push(`nwr["name"]["craft"]${a};`);
-  if (categories.includes("profesionales")) parts.push(`nwr["name"]["office"]${a};`);
-  if (categories.includes("alojamiento")) parts.push(`nwr["name"]["tourism"~"^(hotel|guest_house|hostel|apartment|motel|camp_site)$"]${a};`);
-  if (categories.includes("ocio")) parts.push(`nwr["name"]["leisure"~"^(fitness_centre|sports_centre|dance|escape_game)$"]${a};`);
-  return `[out:json][timeout:60];(${parts.join("")});out center tags 800;`;
+  if (categories.includes("salud")) parts.push(`nwr${f}["healthcare"]${area};`);
+  if (categories.includes("oficios")) parts.push(`nwr${f}["craft"]${area};`);
+  if (categories.includes("profesionales")) parts.push(`nwr${f}["office"]${area};`);
+  if (categories.includes("alojamiento")) parts.push(`nwr${f}["tourism"~"^(hotel|guest_house|hostel|apartment|motel|camp_site)$"]${area};`);
+  if (categories.includes("ocio")) parts.push(`nwr${f}["leisure"~"^(fitness_centre|sports_centre|dance|escape_game)$"]${area};`);
+  return `[out:json][timeout:180][maxsize:1073741824];(${parts.join("")});out center tags ${MAX_RESULTS};`;
 }
 
 async function overpass(query) {
@@ -53,13 +75,16 @@ async function overpass(query) {
         body: "data=" + encodeURIComponent(query),
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
       });
+      if (res.status === 429 || res.status === 504) throw new Error("servidor saturado");
       if (!res.ok) throw new Error(`Overpass respondió ${res.status}`);
-      return await res.json();
+      const data = await res.json();
+      if (data.remark && /runtime error|timed out|out of memory/i.test(data.remark)) throw new Error("la zona es demasiado grande para el servidor");
+      return data;
     } catch (e) {
       lastErr = e;
     }
   }
-  throw new Error(`El servidor de mapas no responde ahora mismo (${lastErr?.message}). Inténtalo en un minuto.`);
+  throw new Error(`El servidor de mapas no ha podido completar la búsqueda (${lastErr?.message}). Si el radio es muy grande, prueba con menos sectores o marca "Solo sin web", o inténtalo en un minuto.`);
 }
 
 const first = (t, ...keys) => {
@@ -161,8 +186,9 @@ function distanceKm(lat1, lon1, lat2, lon2) {
   return 2 * R * Math.asin(Math.sqrt(a));
 }
 
-export async function searchBusinesses({ lat, lon, radius, categories }) {
-  const data = await overpass(buildQuery(lat, lon, radius, categories));
+export async function searchBusinesses({ lat, lon, radius, categories, onlyNoWeb = false, excludeChains = false }) {
+  const data = await overpass(buildQuery(lat, lon, radius, categories, { onlyNoWeb, excludeChains }));
+  const truncated = (data.elements || []).length >= MAX_RESULTS;
   const seen = new Set();
   const list = [];
   for (const el of data.elements || []) {
@@ -172,10 +198,11 @@ export async function searchBusinesses({ lat, lon, radius, categories }) {
     if (seen.has(key)) continue;
     seen.add(key);
     b.distance = distanceKm(lat, lon, b.lat, b.lon);
+    if (b.distance * 1000 > radius) continue; // fuera del círculo (esquinas de la caja)
     list.push(b);
   }
   list.sort((x, y) => x.distance - y.distance);
-  return list;
+  return { list, truncated };
 }
 
 // ---------- Enlaces útiles ----------

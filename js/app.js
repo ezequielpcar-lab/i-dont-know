@@ -1,4 +1,4 @@
-import { geocode, searchBusinesses, googleMapsUrl, googleSearchUrl, whatsappUrl } from "./osm.js";
+import { geocode, reverseGeocode, searchBusinesses, googleMapsUrl, googleSearchUrl, whatsappUrl } from "./osm.js";
 import { estimatePrice, euro } from "./pricing.js";
 import { analyzeBusiness, testKey, MODELS } from "./ai.js";
 
@@ -37,7 +37,14 @@ const state = {
   selectedId: null,
   analyzing: new Set(),
   categories: new Set(store.settings.categories || CATEGORIES.map((c) => c.id)),
+  center: store.settings.center || null, // { lat, lon, label }
+  radiusKm: store.settings.radiusKm || 2,
+  truncated: store.last?.truncated || false,
+  onlyNoWebUsed: store.last?.onlyNoWeb || false,
+  pageSize: 200,
+  shown: 200,
 };
+const L = window.L;
 
 // ---------- Utilidades ----------
 const $ = (s) => document.querySelector(s);
@@ -81,6 +88,103 @@ function webStatus(b) {
   return b.website ? { label: "Tiene web · sin analizar", cls: "info" } : { label: "Sin web", cls: "bad" };
 }
 
+// ---------- Mapa y zona de búsqueda ----------
+const map = L.map("map", { preferCanvas: true, zoomControl: true }).setView([40.2, -3.7], 6);
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  maxZoom: 19,
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+}).addTo(map);
+const centerMarker = L.marker([0, 0], { draggable: true, autoPan: true, title: "Centro de la búsqueda" });
+const zoneCircle = L.circle([0, 0], { radius: 1000, color: "#1f5eff", weight: 2, fillOpacity: 0.08, interactive: false });
+const resultsLayer = L.layerGroup().addTo(map);
+
+const legend = L.control({ position: "bottomleft" });
+legend.onAdd = () => {
+  const d = L.DomUtil.create("div", "legend");
+  d.innerHTML = `<div><i style="background:#e0364b"></i>Sin web / solo redes</div><div><i style="background:#f08c00"></i>Web anticuada o mejorable</div><div><i style="background:#1f5eff"></i>Con web (sin analizar)</div><div><i style="background:#18a058"></i>Web moderna</div>`;
+  return d;
+};
+legend.addTo(map);
+
+function radiusMeters() { return Math.round(state.radiusKm * 1000); }
+
+function updateRadiusUi() {
+  $("#radius").value = state.radiusKm;
+  $("#radiusOut").textContent = state.radiusKm < 1 ? `${state.radiusKm * 1000} m` : `${state.radiusKm} km`;
+  zoneCircle.setRadius(radiusMeters());
+}
+
+function updateZoneLabel() {
+  const c = state.center;
+  $("#zoneLabel").innerHTML = c
+    ? `Zona marcada: <b>${esc(c.label || `${c.lat.toFixed(4)}, ${c.lon.toFixed(4)}`)}</b> · radio ${esc($("#radiusOut").textContent)}. Arrastra el punto o toca otro sitio para cambiarla.`
+    : `Toca el mapa para marcar el centro de la zona, ajusta el radio (hasta 60 km) y pulsa <b>Buscar negocios</b>.`;
+}
+
+async function setCenter(lat, lon, label = null, { fit = false } = {}) {
+  state.center = { lat, lon, label };
+  centerMarker.setLatLng([lat, lon]);
+  zoneCircle.setLatLng([lat, lon]);
+  if (!map.hasLayer(centerMarker)) { centerMarker.addTo(map); zoneCircle.addTo(map); }
+  if (fit) map.fitBounds(zoneCircle.getBounds(), { padding: [20, 20] });
+  updateZoneLabel();
+  if (!label) {
+    const name = await reverseGeocode(lat, lon);
+    if (name && state.center?.lat === lat && state.center?.lon === lon) state.center.label = name;
+    updateZoneLabel();
+  }
+  store.settings.center = state.center;
+  persist();
+}
+
+map.on("click", (e) => {
+  $("#zone").value = "";
+  setCenter(e.latlng.lat, e.latlng.lng);
+});
+centerMarker.on("dragend", () => {
+  const p = centerMarker.getLatLng();
+  $("#zone").value = "";
+  setCenter(p.lat, p.lng);
+});
+
+$("#radius").addEventListener("input", () => {
+  const prev = state.radiusKm;
+  state.radiusKm = parseFloat($("#radius").value);
+  // En zonas grandes, por defecto traemos solo los negocios sin web (mucho más rápido).
+  if (prev <= 15 && state.radiusKm > 15) $("#onlyNoWeb").checked = true;
+  updateRadiusUi();
+  updateZoneLabel();
+  store.settings.radiusKm = state.radiusKm;
+  persist();
+});
+$("#radius").addEventListener("change", () => {
+  if (state.center) map.fitBounds(zoneCircle.getBounds(), { padding: [20, 20] });
+});
+
+$("#btnMapToggle").addEventListener("click", () => {
+  const wrap = $(".map-wrap");
+  wrap.classList.toggle("collapsed");
+  $("#btnMapToggle").textContent = wrap.classList.contains("collapsed") ? "Mostrar mapa" : "Ocultar mapa";
+  if (!wrap.classList.contains("collapsed")) setTimeout(() => map.invalidateSize(), 50);
+});
+
+const COLORS = { bad: "#e0364b", warn: "#f08c00", info: "#1f5eff", ok: "#18a058" };
+function renderMarkers(list) {
+  resultsLayer.clearLayers();
+  for (const b of list) {
+    if (b.lat == null) continue;
+    const ws = webStatus(b);
+    const selected = b.id === state.selectedId;
+    const m = L.circleMarker([b.lat, b.lon], {
+      radius: selected ? 10 : 6, color: selected ? "#111" : "#fff", weight: selected ? 3 : 1.5,
+      fillColor: COLORS[ws.cls] || "#888", fillOpacity: 0.9,
+    });
+    m.bindTooltip(`${esc(b.name)} · ${esc(b.type)}`);
+    m.on("click", () => selectBusiness(b.id, { fromMap: true }));
+    m.addTo(resultsLayer);
+  }
+}
+
 // ---------- Búsqueda ----------
 function renderCategories() {
   $("#categories").innerHTML = CATEGORIES.map(
@@ -88,19 +192,32 @@ function renderCategories() {
   ).join("");
 }
 
-async function runSearch({ lat, lon, label }) {
-  const radius = parseInt($("#radius").value, 10);
+async function runSearch() {
+  const c = state.center;
+  if (!c) return setStatus("Marca primero una zona: toca el mapa o escribe un lugar.", true);
+  const radius = radiusMeters();
   const categories = [...state.categories];
   if (!categories.length) return setStatus("Elige al menos un sector.", true);
+  const onlyNoWeb = $("#onlyNoWeb").checked;
+  const label = c.label || `${c.lat.toFixed(4)}, ${c.lon.toFixed(4)}`;
   $("#btnSearch").disabled = true;
-  setStatus(`Buscando negocios en ${label}…`);
+  setStatus(`Buscando negocios en ${label} (radio ${$("#radiusOut").textContent})…${radius > 15000 ? " En zonas grandes puede tardar hasta un par de minutos." : ""}`);
   try {
-    const results = await searchBusinesses({ lat, lon, radius, categories });
-    state.results = results;
+    const { list, truncated } = await searchBusinesses({
+      lat: c.lat, lon: c.lon, radius, categories, onlyNoWeb,
+      excludeChains: radius > 15000 && $("#hideChains").checked,
+    });
+    state.results = list;
     state.zoneLabel = label;
+    state.truncated = truncated;
+    state.onlyNoWebUsed = onlyNoWeb;
     state.selectedId = null;
-    store.last = { label, results, at: Date.now() };
+    state.shown = state.pageSize;
+    store.last = { label, results: list, truncated, onlyNoWeb, at: Date.now() };
+    // localStorage tiene ~5 MB: no guardamos búsquedas enormes para no perder los guardados.
+    if (JSON.stringify(list).length > 2_500_000) store.last = null;
     persist();
+    if (onlyNoWeb && state.view === "conweb") $('[data-view="sinweb"]').click();
     renderList();
     renderDetail();
   } catch (e) {
@@ -113,21 +230,28 @@ async function runSearch({ lat, lon, label }) {
 $("#searchForm").addEventListener("submit", async (ev) => {
   ev.preventDefault();
   const zone = $("#zone").value.trim();
-  if (!zone) return;
-  setStatus(`Localizando "${zone}"…`);
-  try {
-    const [place] = await geocode(zone);
-    await runSearch({ lat: place.lat, lon: place.lon, label: place.label.split(",").slice(0, 3).join(",") });
-  } catch (e) {
-    setStatus(e.message, true);
+  if (zone && zone !== state.center?.label) {
+    setStatus(`Localizando "${zone}"…`);
+    try {
+      const [place] = await geocode(zone);
+      await setCenter(place.lat, place.lon, place.label.split(",").slice(0, 3).join(","), { fit: true });
+      $("#zone").value = state.center.label;
+    } catch (e) {
+      return setStatus(e.message, true);
+    }
   }
+  runSearch();
 });
 
 $("#btnLocate").addEventListener("click", () => {
   if (!navigator.geolocation) return setStatus("Este dispositivo no permite obtener la ubicación.", true);
   setStatus("Obteniendo tu ubicación…");
   navigator.geolocation.getCurrentPosition(
-    (pos) => runSearch({ lat: pos.coords.latitude, lon: pos.coords.longitude, label: "tu ubicación actual" }),
+    (pos) => {
+      $("#zone").value = "";
+      setCenter(pos.coords.latitude, pos.coords.longitude, null, { fit: true });
+      setStatus("Ubicación marcada en el mapa. Ajusta el radio y pulsa Buscar negocios.");
+    },
     () => setStatus("No se pudo obtener la ubicación. Revisa los permisos de Safari.", true),
     { enableHighAccuracy: true, timeout: 15000 }
   );
@@ -173,10 +297,15 @@ function renderList() {
   if (state.view === "guardados") {
     setStatus(`${list.length} negocio(s) guardado(s).`);
   } else if (state.results.length) {
-    setStatus(`${state.zoneLabel}: ${base.length} negocios · ${noWeb} sin web registrada · ${base.length - noWeb} con web. Mostrando ${list.length}.`);
+    setStatus(`${state.zoneLabel}: ${base.length} negocios · ${noWeb} sin web registrada` +
+      (state.onlyNoWebUsed ? " (búsqueda solo sin web)" : ` · ${base.length - noWeb} con web`) +
+      `. Mostrando ${list.length}.` +
+      (state.truncated ? " ⚠️ Hay más negocios de los que caben en una búsqueda: reduce el radio o los sectores para verlos todos." : ""));
   }
+  renderMarkers(list);
+  const page = list.slice(0, state.shown);
   $("#results").innerHTML = list.length
-    ? list.map((b) => {
+    ? page.map((b) => {
         const ws = webStatus(b);
         const saved = store.saved[b.id];
         const a = store.analyses[b.id];
@@ -194,18 +323,37 @@ function renderList() {
             ${saved ? `<span class="badge ok">★ ${esc(saved.status)}</span>` : ""}
           </div>
         </li>`;
-      }).join("")
+      }).join("") +
+      (list.length > page.length ? `<li class="more-btn"><button class="btn secondary" data-more>Mostrar ${Math.min(state.pageSize, list.length - page.length)} más (quedan ${list.length - page.length})</button></li>` : "")
     : `<li class="empty-detail">${state.results.length || state.view === "guardados" ? "No hay negocios con estos filtros." : ""}</li>`;
 }
 
-$("#results").addEventListener("click", (ev) => {
-  const card = ev.target.closest(".card");
-  if (!card) return;
-  state.selectedId = card.dataset.id;
+function selectBusiness(id, { fromMap = false } = {}) {
+  state.selectedId = id;
+  if (fromMap) {
+    const idx = visibleList().findIndex((b) => b.id === id);
+    if (idx >= state.shown) state.shown = Math.ceil((idx + 1) / state.pageSize) * state.pageSize;
+  }
   renderList();
   renderDetail();
   $("#detail").classList.add("open");
   $("#detail").scrollTop = 0;
+  const card = document.querySelector(`.card[data-id="${CSS.escape(id)}"]`);
+  if (fromMap) card?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  else {
+    const b = findBusiness(id);
+    if (b?.lat != null && !$(".map-wrap").classList.contains("collapsed")) map.panTo([b.lat, b.lon]);
+  }
+}
+
+$("#results").addEventListener("click", (ev) => {
+  if (ev.target.closest("[data-more]")) {
+    state.shown += state.pageSize;
+    renderList();
+    return;
+  }
+  const card = ev.target.closest(".card");
+  if (card) selectBusiness(card.dataset.id);
 });
 $("#results").addEventListener("keydown", (ev) => {
   if (ev.key === "Enter") ev.target.closest(".card")?.click();
@@ -215,10 +363,11 @@ $("#viewFilter").addEventListener("click", (ev) => {
   const btn = ev.target.closest("[data-view]");
   if (!btn) return;
   state.view = btn.dataset.view;
+  state.shown = state.pageSize;
   document.querySelectorAll("#viewFilter button").forEach((b) => b.classList.toggle("active", b === btn));
   renderList();
 });
-["#textFilter", "#hideChains", "#onlyPhone"].forEach((s) => $(s).addEventListener("input", renderList));
+["#textFilter", "#hideChains", "#onlyPhone"].forEach((s) => $(s).addEventListener("input", () => { state.shown = state.pageSize; renderList(); }));
 
 // ---------- Ficha del negocio ----------
 function contactRows(b, a) {
@@ -452,6 +601,13 @@ $("#btnExportResults").addEventListener("click", () => download("negocios-result
 
 // ---------- Inicio ----------
 renderCategories();
+updateRadiusUi();
+$("#onlyNoWeb").checked = state.radiusKm > 15;
+if (state.center) {
+  const { lat, lon, label } = state.center;
+  setCenter(lat, lon, label, { fit: true });
+  if (label) $("#zone").value = label;
+}
 if (state.results.length) {
   renderList();
 } else if (!store.settings.apiKey) {

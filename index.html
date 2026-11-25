@@ -13,6 +13,7 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon-192.png" type="image/png">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="js/vendor/leaflet/leaflet.css">
   <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
@@ -28,17 +29,21 @@
 
   <section class="search-panel">
     <form id="searchForm" class="search-row" autocomplete="off">
-      <input id="zone" type="search" placeholder="Zona: barrio, ciudad o código postal (ej. Ruzafa, Valencia)" required enterkeyhint="search">
+      <input id="zone" type="search" placeholder="Busca un lugar (ej. Ruzafa, Valencia) o toca el mapa" enterkeyhint="search">
       <button type="button" id="btnLocate" class="btn secondary" title="Usar mi ubicación">📍 Aquí</button>
-      <select id="radius" aria-label="Radio de búsqueda">
-        <option value="500">500 m</option>
-        <option value="1000" selected>1 km</option>
-        <option value="2000">2 km</option>
-        <option value="5000">5 km</option>
-        <option value="10000">10 km</option>
-      </select>
-      <button type="submit" class="btn primary" id="btnSearch">Buscar</button>
+      <button type="submit" class="btn primary" id="btnSearch">Buscar negocios</button>
     </form>
+    <div class="map-wrap">
+      <div id="map" aria-label="Mapa de España: toca para marcar la zona de búsqueda"></div>
+      <button type="button" id="btnMapToggle" class="btn secondary small map-toggle">Ocultar mapa</button>
+    </div>
+    <div class="radius-row">
+      <label for="radius">Radio</label>
+      <input id="radius" type="range" min="0.5" max="60" step="0.5" value="2">
+      <output id="radiusOut" for="radius">2 km</output>
+      <label class="check" title="En zonas grandes la búsqueda es mucho más rápida"><input type="checkbox" id="onlyNoWeb"> Traer solo negocios sin web</label>
+    </div>
+    <p class="hint map-hint" id="zoneLabel">Toca el mapa para marcar el centro de la zona, ajusta el radio (hasta 60 km) y pulsa <b>Buscar negocios</b>. Puedes arrastrar el punto azul.</p>
     <div id="categories" class="chips" role="group" aria-label="Sectores"></div>
   </section>
 
@@ -93,6 +98,7 @@
 
   <div id="toast" class="toast" hidden></div>
 
+  <script src="js/vendor/leaflet/leaflet.js"></script>
   <script type="module" src="js/app.js"></script>
 </body>
 </html>
